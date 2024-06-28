@@ -2,6 +2,13 @@
   "name": "doc-agent",
   "module": "index.ts",
   "type": "module",
+  "scripts": {
+    "dev": "bun --watch ./index.ts",
+    "build": "bun build ./index.ts --compile --outfile ./dist/doc-agent"
+  },
+  "dependencies": {
+    "openai": "^4.52.1"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },
