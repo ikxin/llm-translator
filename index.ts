@@ -7,9 +7,9 @@ const openai = new OpenAI({
   baseURL: process.env.OPENAI_BASE_URL,
 });
 
-const extname = ".md";
+const extname = [".mdx", ".md"];
 const prompt =
-  "将以下 markdown 格式的文档翻译成中文，请严格按照原文 markdown 格式，并且要求在翻译结果的中文和英文单词之间插入空格隔开";
+  "将以下 markdown 格式的文档翻译成中文，请严格按照原文 markdown 格式";
 
 async function translate(content: string) {
   try {
@@ -36,7 +36,7 @@ async function main(targetPath: string) {
 
   for (const filePath of files) {
     const ext = path.extname(filePath);
-    if (ext === extname) {
+    if (extname.includes(ext)) {
       const startTime = Date.now();
       const content = fs.readFileSync(filePath, "utf8");
       const translated = await translate(content);
