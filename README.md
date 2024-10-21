@@ -1,15 +1,1 @@
-# doc-agent
-
-To install dependencies:
-
-```bash
-bun install
-```
-
-To run:
-
-```bash
-bun run index.ts
-```
-
-This project was created using `bun init` in bun v1.1.17. [Bun](https://bun.sh) is a fast all-in-one JavaScript runtime.
+看起来您没有提供任何文本供我翻译。如果您有任何 markdown 格式的文档需要翻译，请将其粘贴在这里，我将很高兴地帮您进行翻译！

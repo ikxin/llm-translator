@@ -1,52 +1,39 @@
-import OpenAI from "openai";
 import fs from "fs";
-import path from "path";
+import { getTargetFiles, getTranslateContent } from "./utils";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API,
-  baseURL: process.env.OPENAI_BASE_URL,
-});
+const targetFiles = getTargetFiles(process.argv[2] || process.cwd());
 
-const extname = [".mdx", ".md"];
-const prompt =
-  "将以下 markdown 格式的文档翻译成中文，请严格按照原文 markdown 格式";
+async function translateFiles() {
+  for (const file of targetFiles) {
+    console.log(`正在翻译文件: ${file}`);
+    const content = fs.readFileSync(file, 'utf-8');
+    let translatedContent = '';
+    let attempts = 0;
+    const maxAttempts = 10;
+    const startTime = Date.now();
 
-async function translate(content: string) {
-  try {
-    const response = await openai.chat.completions.create({
-      messages: [
-        { role: "system", content: prompt },
-        { role: "user", content },
-      ],
-      model: process.env.OPENAI_MODEL!,
-      max_tokens: 8 * 1024,
-    });
-    return response.choices[0].message.content || "";
-  } catch (error) {
-    return "";
-  }
-}
+    while (attempts < maxAttempts) {
+      try {
+        translatedContent = await getTranslateContent(content);
+        if (translatedContent) {
+          break;
+        }
+      } catch (error) {
+        console.error(`翻译失败，正在重试 (${attempts + 1}/${maxAttempts})`);
+      }
+      attempts++;
+    }
 
-async function main(targetPath: string) {
-  const isDir = fs.statSync(targetPath).isDirectory();
+    const endTime = Date.now();
+    const duration = endTime - startTime
 
-  const files = isDir
-    ? fs.readdirSync(targetPath).map((file) => path.join(targetPath, file))
-    : [targetPath];
-
-  for (const filePath of files) {
-    const ext = path.extname(filePath);
-    if (extname.includes(ext)) {
-      const startTime = Date.now();
-      const content = fs.readFileSync(filePath, "utf8");
-      const translated = await translate(content);
-      fs.writeFileSync(filePath, translated, "utf8");
-      const countTime = Date.now() - startTime;
-      console.log(`已翻译：${path.basename(filePath)}，耗时：${countTime}ms`);
+    if (translatedContent) {
+      fs.writeFileSync(file, translatedContent, 'utf-8');
+      console.log(`文件 ${file} 翻译成功，耗时 ${duration.toFixed(2)} 毫秒`);
     } else {
-      console.log(`未翻译：${path.basename(filePath)}`);
+      console.error(`文件 ${file} 翻译失败，已达到最大重试次数`);
     }
   }
 }
 
-await main(process.argv[2] || process.cwd());
+translateFiles().catch(console.error);

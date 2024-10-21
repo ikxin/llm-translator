@@ -1,18 +1,16 @@
 {
-  "name": "doc-agent",
+  "name": "llm-translator",
   "module": "index.ts",
   "type": "module",
   "scripts": {
     "dev": "bun --watch ./index.ts",
-    "build": "bun build ./index.ts --compile --outfile ./dist/doc-agent"
+    "build": "bun build ./index.ts --compile --outfile ./dist/llm-translator"
   },
   "dependencies": {
-    "openai": "^4.52.1"
+    "openai": "^4.68.1"
   },
   "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "^5.0.0"
+    "@types/bun": "^1.1.11",
+    "typescript": "^5.6.3"
   }
 }
