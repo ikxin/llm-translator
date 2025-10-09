@@ -50,7 +50,23 @@ export async function getTranslateContent(content: string): Promise<string> {
       ],
       model: process.env.OPENAI_MODEL!,
     });
-    return response.choices[0].message.content || "";
+
+    let result = response.choices[0].message.content || "";
+    let removedCodeBlock = false;
+
+    if (result.startsWith("```")) {
+      const firstNewlineIndex = result.indexOf("\n");
+      if (firstNewlineIndex !== -1) {
+        result = result.slice(firstNewlineIndex + 1);
+        removedCodeBlock = true;
+      }
+    }
+
+    if (removedCodeBlock && result.endsWith("```")) {
+      result = result.slice(0, -3);
+    }
+
+    return result.trim();
   } catch (error) {
     return "";
   }

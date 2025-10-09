@@ -13,9 +13,12 @@ async function translateFiles() {
     const startTime = Date.now();
 
     while (attempts < maxAttempts) {
+      console.log(`尝试翻译文件: ${file} (尝试次数: ${attempts + 1})`);
+      
       try {
         translatedContent = await getTranslateContent(content);
         if (translatedContent) {
+          console.log(`翻译成功，正在写入文件: ${file}`);
           break;
         }
       } catch (error) {
