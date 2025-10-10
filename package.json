@@ -2,11 +2,16 @@
   "name": "llm-translator",
   "module": "index.ts",
   "type": "module",
+  "packageManager": "pnpm@10.18.2",
   "scripts": {
     "dev": "bun --watch ./index.ts",
     "build": "bun build ./index.ts --compile --outfile ./dist/llm-translator"
   },
+  "bin": {
+    "llm-translator": "./src/index.ts"
+  },
   "dependencies": {
+    "commander": "^14.0.1",
     "openai": "^4.68.1"
   },
   "devDependencies": {
