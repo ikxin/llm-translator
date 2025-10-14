@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "commander": "^14.0.1",
-    "openai": "^4.68.1"
+    "openai": "^4.68.1",
+    "rc9": "^2.1.2"
   },
   "devDependencies": {
     "@types/bun": "^1.1.11",
