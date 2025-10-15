@@ -1,6 +1,13 @@
-import path from "path";
+import { read } from "rc9";
 import fs from "fs";
-import openai from "openai";
+import OpenAI from "openai";
+import os from "os";
+import path from "path";
+
+const config = read({
+  dir: path.join(os.homedir(), ".config", "llm-translator"),
+  name: "app.conf",
+});
 
 export function getTargetFiles(
   targetPath: string,
@@ -37,21 +44,19 @@ export function getTargetFiles(
 }
 
 export async function getTranslateContent(content: string): Promise<string> {
-  const client = new openai({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_BASE_URL,
-  });
-
   try {
-    const response = await client.chat.completions.create({
-      messages: [
-        { role: "system", content: process.env.OPENAI_SYSTEM_PROMPT! },
-        { role: "user", content },
-      ],
-      model: process.env.OPENAI_MODEL!,
+    const client = new OpenAI({
+      apiKey: config.api_key,
+      baseURL: config.base_url,
     });
 
-    let result = response.choices[0].message.content || "";
+    const response = await client.responses.create({
+      model: config.model,
+      instructions: config.prompt,
+      input: content,
+    });
+
+    let result = response.output_text || "";
     let removedCodeBlock = false;
 
     if (result.startsWith("```")) {
