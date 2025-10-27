@@ -10,7 +10,8 @@
     "commander": "^14.0.2",
     "glob": "^11.0.3",
     "openai": "^6.7.0",
-    "rc9": "^2.1.2"
+    "rc9": "^2.1.2",
+    "simple-git": "^3.28.0"
   },
   "devDependencies": {
     "@types/node": "^24.9.1"
