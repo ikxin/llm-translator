@@ -22,12 +22,13 @@ export async function getGitMergeFiles() {
   const status = await git.status(['--porcelain'])
 
   const files = status.files
-    .filter(
-      (file) =>
-        /\.(md|mdx)$/i.test(file.path) &&
-        file.index === 'U' &&
-        file.working_dir === 'U'
-    )
+    .filter((file) => {
+      const rules =
+        (file.index === 'U' && file.working_dir === 'U') ||
+        (file.index === 'A' && file.working_dir === ' ')
+
+      return /\.(md|mdx)$/i.test(file.path) && rules
+    })
     .map((file) => join(process.cwd(), file.path))
 
   return files.sort((a, b) => a.localeCompare(b))
