@@ -6,8 +6,8 @@ import { join } from 'path'
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'fs'
 import { program } from 'commander'
 import { read, write } from 'rc9'
-import { getAllFiles, getGitMergeFiles } from './utils.ts'
-import { getTranslateContent } from '../utils.ts'
+import { getAllFiles, getGitMergeFiles, getOutputText } from './utils.ts'
+import { prompt } from './prompt.ts'
 
 const configDir = join(homedir(), '.config', 'llm-translator')
 
@@ -40,34 +40,34 @@ program
     }
 
     for (const file of getAllFiles(filePath)) {
-      console.log(`正在翻译文件: ${file}`)
-      const content = readFileSync(file, 'utf-8')
-      let translatedContent = ''
-      let attempts = 0
-      const maxAttempts = 10
-      const startTime = Date.now()
+      console.time('任务耗时')
 
-      while (attempts < maxAttempts) {
-        console.log(`尝试翻译文件: ${file} (尝试次数: ${attempts + 1})`)
+      const content = readFileSync(file, 'utf-8')
+
+      let result = ''
+      let attempts = 0
+
+      while (attempts < 3) {
+        console.log(`第 ${attempts + 1} 次执行 ${file}`)
 
         try {
-          translatedContent = await getTranslateContent(content, client)
-          if (translatedContent) {
-            console.log(`翻译成功，正在写入文件: ${file}`)
-            break
-          }
+          result = await getOutputText(
+            client,
+            config.model,
+            content,
+            prompt.translate
+          )
+
+          if (result) break
         } catch (error) {
-          console.error(`翻译失败，正在重试 (${attempts + 1}/${maxAttempts})`)
+          console.error(`正在重试`)
         }
         attempts++
       }
 
-      const endTime = Date.now()
-      const duration = endTime - startTime
-
-      if (translatedContent) {
-        writeFileSync(file, translatedContent, 'utf-8')
-        console.log(`文件 ${file} 翻译成功，耗时 ${duration.toFixed(2)} 毫秒`)
+      if (result) {
+        writeFileSync(file, result, 'utf-8')
+        console.timeEnd('任务耗时')
       } else {
         console.error(`文件 ${file} 翻译失败，已达到最大重试次数`)
       }
@@ -87,42 +87,39 @@ program.command('init').action(() => {
 })
 
 program.command('merge').action(async () => {
-  const files = await getGitMergeFiles()
-  console.log('待合并的文件:', files)
+  for (const file of await getGitMergeFiles()) {
+    console.time('任务耗时')
 
-  // for (const file of files) {
-  //   console.log(`正在翻译文件: ${file}`)
-  //   const content = readFileSync(file, 'utf-8')
-  //   let translatedContent = ''
-  //   let attempts = 0
-  //   const maxAttempts = 10
-  //   const startTime = Date.now()
+    const content = readFileSync(file, 'utf-8')
 
-  //   while (attempts < maxAttempts) {
-  //     console.log(`尝试翻译文件: ${file} (尝试次数: ${attempts + 1})`)
+    let result = ''
+    let attempts = 0
 
-  //     try {
-  //       translatedContent = await getTranslateContent(content)
-  //       if (translatedContent) {
-  //         console.log(`翻译成功，正在写入文件: ${file}`)
-  //         break
-  //       }
-  //     } catch (error) {
-  //       console.error(`翻译失败，正在重试 (${attempts + 1}/${maxAttempts})`)
-  //     }
-  //     attempts++
-  //   }
+    while (attempts < 3) {
+      console.log(`第 ${attempts + 1} 次执行 ${file}`)
 
-  //   const endTime = Date.now()
-  //   const duration = endTime - startTime
+      try {
+        result = await getOutputText(
+          client,
+          config.model,
+          content,
+          prompt.translate
+        )
 
-  //   if (translatedContent) {
-  //     writeFileSync(file, translatedContent, 'utf-8')
-  //     console.log(`文件 ${file} 翻译成功，耗时 ${duration.toFixed(2)} 毫秒`)
-  //   } else {
-  //     console.error(`文件 ${file} 翻译失败，已达到最大重试次数`)
-  //   }
-  // }
+        if (result) break
+      } catch (error) {
+        console.error(`正在重试`)
+      }
+      attempts++
+    }
+
+    if (result) {
+      writeFileSync(file, result, 'utf-8')
+      console.timeEnd('任务耗时')
+    } else {
+      console.error(`文件 ${file} 翻译失败，已达到最大重试次数`)
+    }
+  }
 })
 
 program.parse(process.argv)

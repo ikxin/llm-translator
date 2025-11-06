@@ -2,6 +2,7 @@ import { globSync } from 'glob'
 import { join } from 'path'
 import { simpleGit } from 'simple-git'
 import { statSync } from 'fs'
+import type { OpenAI } from 'openai'
 
 export function getAllFiles(filePath: string) {
   const isFile = statSync(filePath).isFile()
@@ -32,4 +33,19 @@ export async function getGitMergeFiles() {
     .map((file) => join(process.cwd(), file.path))
 
   return files.sort((a, b) => a.localeCompare(b))
+}
+
+export async function getOutputText(
+  openai: OpenAI,
+  model: string,
+  content: string,
+  prompt: string
+) {
+  const response = await openai.responses.create({
+    model: model,
+    instructions: prompt,
+    input: content,
+  })
+
+  return response.output_text
 }
