@@ -12,7 +12,7 @@ export function getAllFiles(filePath: string) {
     absolute: true,
     cwd: isFile ? process.cwd() : filePath,
     nodir: true,
-    ignore: ['**/node_modules/**', '**/.git/**'],
+    ignore: ['**/node_modules/**', '**/.git/**', '**/CHANGELOG.md'],
   })
 
   return files.sort((a, b) => a.localeCompare(b))
@@ -26,9 +26,12 @@ export async function getGitMergeFiles() {
     .filter((file) => {
       const rules =
         (file.index === 'U' && file.working_dir === 'U') ||
-        (file.index === 'A' && file.working_dir === ' ')
+        (file.index === 'A' && file.working_dir === ' ') ||
+        (file.index === 'M' && file.working_dir === ' ')
 
-      return /\.(md|mdx)$/i.test(file.path) && rules
+      const isChangelog = /CHANGELOG\.md$/i.test(file.path)
+
+      return /\.(md|mdx)$/i.test(file.path) && rules && !isChangelog
     })
     .map((file) => join(process.cwd(), file.path))
 
@@ -39,7 +42,7 @@ export async function getOutputText(
   openai: OpenAI,
   model: string,
   content: string,
-  prompt: string
+  prompt: string,
 ) {
   const response = await openai.responses.create({
     model: model,

@@ -47,7 +47,7 @@ program
       let result = ''
       let attempts = 0
 
-      while (attempts < 3) {
+      while (attempts < 10) {
         console.log(`第 ${attempts + 1} 次执行 ${file}`)
 
         try {
@@ -55,7 +55,7 @@ program
             client,
             config.model,
             content,
-            prompt.translate
+            prompt.translate,
           )
 
           if (result) break
@@ -79,7 +79,6 @@ program.command('init').action(() => {
     api_key: '',
     base_url: '',
     model: '',
-    prompt: '',
   }
 
   write(config, { dir: configDir, name: 'app.conf' })
@@ -95,7 +94,7 @@ program.command('merge').action(async () => {
     let result = ''
     let attempts = 0
 
-    while (attempts < 3) {
+    while (attempts < 10) {
       console.log(`第 ${attempts + 1} 次执行 ${file}`)
 
       try {
@@ -103,7 +102,7 @@ program.command('merge').action(async () => {
           client,
           config.model,
           content,
-          prompt.translate
+          prompt.translate,
         )
 
         if (result) break
