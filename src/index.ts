@@ -6,7 +6,12 @@ import { join } from 'path'
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'fs'
 import { program } from 'commander'
 import { read, write } from 'rc9'
-import { getAllFiles, getGitMergeFiles, getOutputText } from './utils.ts'
+import {
+  getAllFiles,
+  getGitMergeFiles,
+  getOutputText,
+  resolveConflictsWithTheirs,
+} from './utils.ts'
 import { prompt } from './prompt.ts'
 
 const configDir = join(homedir(), '.config', 'llm-translator')
@@ -86,7 +91,18 @@ program.command('init').action(() => {
 })
 
 program.command('merge').action(async () => {
-  for (const file of await getGitMergeFiles()) {
+  const files = await getGitMergeFiles()
+
+  if (files.length === 0) {
+    console.log('没有需要处理的文件')
+    return
+  }
+
+  console.log(`正在使用 git 解决 ${files.length} 个文件的冲突...`)
+  await resolveConflictsWithTheirs(files)
+  console.log('冲突已解决，开始翻译...')
+
+  for (const file of files) {
     console.time('任务耗时')
 
     const content = readFileSync(file, 'utf-8')
