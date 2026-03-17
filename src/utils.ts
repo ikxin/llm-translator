@@ -54,7 +54,7 @@ export async function getGitMergeFiles() {
   return files.sort((a, b) => a.localeCompare(b))
 }
 
-export async function resolveConflictsWithTheirs(files: string[]) {
+export async function resolveGitConflict(files: string[]) {
   const git = simpleGit()
   for (const file of files) {
     const content = readFileSync(file, 'utf-8')
@@ -63,7 +63,11 @@ export async function resolveConflictsWithTheirs(files: string[]) {
       (_match, _ours, theirs) => theirs,
     )
     writeFileSync(file, resolved, 'utf-8')
-    await git.add(file)
+    try {
+      await git.add(file)
+    } catch {
+      // 跳过被 .gitignore 忽略的文件
+    }
   }
 }
 

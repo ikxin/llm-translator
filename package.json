@@ -11,9 +11,16 @@
     "glob": "^11.0.3",
     "openai": "^6.7.0",
     "rc9": "^2.1.2",
-    "simple-git": "^3.28.0"
+    "remark-frontmatter": "^5.0.0",
+    "remark-mdc": "^3.10.0",
+    "remark-mdx": "^3.1.1",
+    "remark-parse": "^11.0.0",
+    "remark-stringify": "^11.0.0",
+    "simple-git": "^3.28.0",
+    "unified": "^11.0.5"
   },
   "devDependencies": {
+    "@types/mdast": "^4.0.4",
     "@types/node": "^24.9.1"
   },
   "prettier": {

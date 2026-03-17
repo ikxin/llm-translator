@@ -10,9 +10,10 @@ import {
   getAllFiles,
   getGitMergeFiles,
   getOutputText,
-  resolveConflictsWithTheirs,
+  resolveGitConflict,
 } from './utils.ts'
 import { prompt } from './prompt.ts'
+import { translateByChunks } from './remark.ts'
 
 const configDir = join(homedir(), '.config', 'llm-translator')
 
@@ -29,6 +30,30 @@ const client = new openai({
   apiKey: config.api_key,
   baseURL: config.base_url,
 })
+
+function createTranslateFn(
+  client: openai,
+  model: string,
+  systemPrompt: string,
+  file: string,
+) {
+  let chunkIndex = 0
+  return async (text: string) => {
+    chunkIndex++
+    let attempts = 0
+    while (attempts < 10) {
+      attempts++
+      console.log(`${file} 分片 ${chunkIndex} 第 ${attempts} 次翻译`)
+      try {
+        const result = await getOutputText(client, model, text, systemPrompt)
+        if (result) return result
+      } catch {
+        console.error('正在重试')
+      }
+    }
+    throw new Error(`分片 ${chunkIndex} 翻译失败，已达到最大重试次数`)
+  }
+}
 
 program
   .name('llm-translator')
@@ -49,32 +74,17 @@ program
 
       const content = readFileSync(file, 'utf-8')
 
-      let result = ''
-      let attempts = 0
+      try {
+        const result = await translateByChunks(
+          content,
+          createTranslateFn(client, config.model, prompt.translate, file),
+          { filePath: file },
+        )
 
-      while (attempts < 10) {
-        console.log(`第 ${attempts + 1} 次执行 ${file}`)
-
-        try {
-          result = await getOutputText(
-            client,
-            config.model,
-            content,
-            prompt.translate,
-          )
-
-          if (result) break
-        } catch (error) {
-          console.error(`正在重试`)
-        }
-        attempts++
-      }
-
-      if (result) {
         writeFileSync(file, result, 'utf-8')
         console.timeEnd('任务耗时')
-      } else {
-        console.error(`文件 ${file} 翻译失败，已达到最大重试次数`)
+      } catch (error) {
+        console.error(`文件 ${file} 翻译失败: ${error}`)
       }
     }
   })
@@ -99,7 +109,7 @@ program.command('merge').action(async () => {
   }
 
   console.log(`正在使用 git 解决 ${files.length} 个文件的冲突...`)
-  await resolveConflictsWithTheirs(files)
+  await resolveGitConflict(files)
   console.log('冲突已解决，开始翻译...')
 
   for (const file of files) {
@@ -107,32 +117,17 @@ program.command('merge').action(async () => {
 
     const content = readFileSync(file, 'utf-8')
 
-    let result = ''
-    let attempts = 0
+    try {
+      const result = await translateByChunks(
+        content,
+        createTranslateFn(client, config.model, prompt.translate, file),
+        { filePath: file },
+      )
 
-    while (attempts < 10) {
-      console.log(`第 ${attempts + 1} 次执行 ${file}`)
-
-      try {
-        result = await getOutputText(
-          client,
-          config.model,
-          content,
-          prompt.translate,
-        )
-
-        if (result) break
-      } catch (error) {
-        console.error(`正在重试`)
-      }
-      attempts++
-    }
-
-    if (result) {
       writeFileSync(file, result, 'utf-8')
       console.timeEnd('任务耗时')
-    } else {
-      console.error(`文件 ${file} 翻译失败，已达到最大重试次数`)
+    } catch (error) {
+      console.error(`文件 ${file} 翻译失败: ${error}`)
     }
   }
 })
