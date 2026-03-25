@@ -2,7 +2,14 @@ import { globSync } from 'glob'
 import { join } from 'path'
 import { simpleGit } from 'simple-git'
 import { statSync, readFileSync, writeFileSync } from 'fs'
-import type { OpenAI } from 'openai'
+import { generateText, type LanguageModel } from 'ai'
+
+export interface ProviderConfig {
+  type: 'openai' | 'anthropic'
+  api_key: string
+  model: string
+  base_url?: string
+}
 
 const IGNORED_FILES = [
   'AGENTS.md',
@@ -13,6 +20,7 @@ const IGNORED_FILES = [
   'DEVELOPER.md',
   'README.md',
   'SECURITY.md',
+  'SKILL.md',
   'VISION.md',
 ]
 
@@ -71,8 +79,14 @@ export async function resolveGitConflict(files: string[]) {
   }
 }
 
-export function processOutputText(output: string) {
-  let result = output.trim()
+export async function getOutputText(
+  model: LanguageModel,
+  system: string,
+  prompt: string,
+) {
+  const response = await generateText({ model, system, prompt })
+
+  let result = response.text.trim()
 
   if (result.startsWith('```markdown')) {
     const i = result.indexOf('\n')
@@ -85,19 +99,4 @@ export function processOutputText(output: string) {
   }
 
   return result.endsWith('\n') ? result : result + '\n'
-}
-
-export async function getOutputText(
-  openai: OpenAI,
-  model: string,
-  content: string,
-  prompt: string,
-) {
-  const response = await openai.responses.create({
-    model: model,
-    instructions: prompt,
-    input: content,
-  })
-
-  return processOutputText(response.output_text)
 }
