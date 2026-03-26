@@ -30,6 +30,7 @@ type RawConfig = {
 }
 
 const config = parse(readFileSync(configFile, 'utf-8')) as RawConfig
+const DEFAULT_CONCURRENCY = 5
 const SYSTEM_PROMPT = `将以下 markdown 格式的内容翻译成中文，请遵守以下规则：
 1. 严格保持原文的 markdown 格式和结构不变
 2. 代码块中只翻译注释内容，不要修改任何代码、变量名、函数名、关键字
@@ -85,27 +86,53 @@ function createTranslateFn(model: LanguageModel, file: string) {
   }
 }
 
-async function translateFiles(files: string[], model: LanguageModel) {
-  for (const file of files) {
-    console.time('任务耗时')
+async function translateFiles(
+  files: string[],
+  model: LanguageModel,
+  concurrency: number,
+) {
+  const taskConcurrency = Math.min(Math.max(1, concurrency), files.length)
 
-    const content = readFileSync(file, 'utf-8')
+  if (taskConcurrency === 0) {
+    return
+  }
 
-    try {
-      const result = await translateByChunks(
-        content,
-        createTranslateFn(model, file),
-        {
-          filePath: file,
-        },
-      )
+  let nextIndex = 0
 
-      writeFileSync(file, result, 'utf-8')
-      console.timeEnd('任务耗时')
-    } catch (error) {
-      console.error(`文件 ${file} 翻译失败: ${error}`)
+  const worker = async () => {
+    while (true) {
+      const currentIndex = nextIndex
+      nextIndex++
+
+      if (currentIndex >= files.length) {
+        return
+      }
+
+      const file = files[currentIndex]
+      const label = `任务耗时 ${file}`
+      console.time(label)
+
+      const content = readFileSync(file, 'utf-8')
+
+      try {
+        const result = await translateByChunks(
+          content,
+          createTranslateFn(model, file),
+          {
+            filePath: file,
+          },
+        )
+
+        writeFileSync(file, result, 'utf-8')
+        console.timeEnd(label)
+      } catch (error) {
+        console.timeEnd(label)
+        console.error(`文件 ${file} 翻译失败: ${error}`)
+      }
     }
   }
+
+  await Promise.all(Array.from({ length: taskConcurrency }, () => worker()))
 }
 
 program
@@ -123,9 +150,10 @@ program
     }
 
     const { provider, model } = resolveModel()
-    console.log(`使用 provider: ${provider}`)
+    const concurrency = DEFAULT_CONCURRENCY
+    console.log(`提供商：${provider}、模型：${model.modelId}`)
 
-    await translateFiles(getAllFiles(filePath), model)
+    await translateFiles(getAllFiles(filePath), model, concurrency)
   })
 
 program.command('init').action(() => {
@@ -144,7 +172,8 @@ program.command('init').action(() => {
 
 program.command('merge').action(async () => {
   const { provider, model } = resolveModel()
-  console.log(`使用 provider: ${provider}`)
+  const concurrency = DEFAULT_CONCURRENCY
+  console.log(`提供商：${provider}、模型：${model.modelId}`)
 
   const files = await getGitMergeFiles()
 
@@ -157,7 +186,7 @@ program.command('merge').action(async () => {
   await resolveGitConflict(files)
   console.log('冲突已解决，开始翻译...')
 
-  await translateFiles(files, model)
+  await translateFiles(files, model, concurrency)
 })
 
 program.parse(process.argv)
