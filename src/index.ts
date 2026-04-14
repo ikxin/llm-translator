@@ -17,6 +17,14 @@ import {
 } from './utils.ts'
 import { translateByChunks } from './remark.ts'
 
+const DEFAULT_CHUNKED = false
+const DEFAULT_CONCURRENCY = 10
+const SYSTEM_PROMPT = `将以下 markdown 格式的内容翻译成中文，请遵守以下规则：
+1. 严格保持原文的 markdown 格式和结构不变
+2. 代码块中只翻译注释内容，不要修改任何代码、变量名、函数名、关键字
+3. HTML 中只翻译文本内容，不要修改标签名、属性名、属性值（除非属性值是面向用户的文案）
+4. 直接输出翻译结果，不要用代码块包裹，不要添加任何额外的解释内容`
+
 const configDir = join(homedir(), '.config', 'llm-translator')
 const configFile = join(configDir, 'app.conf')
 
@@ -30,12 +38,6 @@ type RawConfig = {
 }
 
 const config = parse(readFileSync(configFile, 'utf-8')) as RawConfig
-const DEFAULT_CONCURRENCY = 5
-const SYSTEM_PROMPT = `将以下 markdown 格式的内容翻译成中文，请遵守以下规则：
-1. 严格保持原文的 markdown 格式和结构不变
-2. 代码块中只翻译注释内容，不要修改任何代码、变量名、函数名、关键字
-3. HTML 中只翻译文本内容，不要修改标签名、属性名、属性值（除非属性值是面向用户的文案）
-4. 直接输出翻译结果，不要用代码块包裹，不要添加任何额外的解释内容`
 
 function createModel(provider: ProviderConfig): LanguageModel {
   if (provider.type === 'openai') {
@@ -115,13 +117,10 @@ async function translateFiles(
       const content = readFileSync(file, 'utf-8')
 
       try {
-        const result = await translateByChunks(
-          content,
-          createTranslateFn(model, file),
-          {
-            filePath: file,
-          },
-        )
+        const translateFn = createTranslateFn(model, file)
+        const result = DEFAULT_CHUNKED
+          ? await translateByChunks(content, translateFn, { filePath: file })
+          : await translateFn(content)
 
         writeFileSync(file, result, 'utf-8')
         console.timeEnd(label)
