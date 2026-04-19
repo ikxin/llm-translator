@@ -18,6 +18,7 @@ const IGNORED_FILES = [
   'CODE_OF_CONDUCT.md',
   'CONTRIBUTING.md',
   'DEVELOPER.md',
+  'LICENSE.md',
   'README.md',
   'SECURITY.md',
   'SKILL.md',

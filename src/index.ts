@@ -17,7 +17,7 @@ import {
 } from './utils.ts'
 import { translateByChunks } from './remark.ts'
 
-const DEFAULT_CHUNKED = false
+const DEFAULT_CHUNKED = true
 const DEFAULT_CONCURRENCY = 10
 const SYSTEM_PROMPT = `将以下 markdown 格式的内容翻译成中文，请遵守以下规则：
 1. 严格保持原文的 markdown 格式和结构不变
@@ -69,23 +69,66 @@ function resolveModel(): {
   }
 }
 
-function createTranslateFn(model: LanguageModel, file: string) {
-  let chunkIndex = 0
-  return async (prompt: string) => {
-    chunkIndex++
-    let attempts = 0
-    while (attempts < 10) {
-      attempts++
-      console.log(`${file} 分片 ${chunkIndex} 第 ${attempts} 次翻译`)
-      try {
-        const result = await getOutputText(model, SYSTEM_PROMPT, prompt)
-        if (result) return result
-      } catch {
-        console.error('正在重试')
-      }
+function createConcurrencyLimiter(concurrency: number) {
+  const limit = Math.max(1, concurrency)
+  let activeCount = 0
+  const queue: Array<() => void> = []
+
+  const runNext = () => {
+    if (activeCount >= limit || queue.length === 0) {
+      return
     }
-    throw new Error(`分片 ${chunkIndex} 翻译失败，已达到最大重试次数`)
+
+    activeCount++
+    const next = queue.shift()
+    next?.()
   }
+
+  return async function withConcurrencyLimit<T>(
+    task: () => Promise<T>,
+  ): Promise<T> {
+    await new Promise<void>((resolve) => {
+      queue.push(resolve)
+      runNext()
+    })
+
+    try {
+      return await task()
+    } finally {
+      activeCount--
+      runNext()
+    }
+  }
+}
+
+function createTranslateFn(
+  model: LanguageModel,
+  file: string,
+  withConcurrencyLimit: <T>(task: () => Promise<T>) => Promise<T>,
+) {
+  let chunkIndex = 0
+  return async (prompt: string) =>
+    withConcurrencyLimit(async () => {
+      const currentChunkIndex = ++chunkIndex
+      let attempts = 0
+
+      while (attempts < 5) {
+        attempts++
+        console.log(`${file} 分片 ${currentChunkIndex} 第 ${attempts} 次翻译`)
+        try {
+          const result = await getOutputText(model, SYSTEM_PROMPT, prompt)
+          if (result) return result
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.stack || error.message : String(error)
+          console.error(`上游报错，准备重试：${message}`)
+        }
+      }
+
+      throw new Error(
+        `分片 ${currentChunkIndex} 翻译失败，已达到最大重试次数`,
+      )
+    })
 }
 
 async function translateFiles(
@@ -93,12 +136,14 @@ async function translateFiles(
   model: LanguageModel,
   concurrency: number,
 ) {
-  const taskConcurrency = Math.min(Math.max(1, concurrency), files.length)
+  const requestConcurrency = Math.max(1, concurrency)
+  const taskConcurrency = Math.min(requestConcurrency, files.length)
 
   if (taskConcurrency === 0) {
     return
   }
 
+  const withConcurrencyLimit = createConcurrencyLimiter(requestConcurrency)
   let nextIndex = 0
 
   const worker = async () => {
@@ -117,7 +162,11 @@ async function translateFiles(
       const content = readFileSync(file, 'utf-8')
 
       try {
-        const translateFn = createTranslateFn(model, file)
+        const translateFn = createTranslateFn(
+          model,
+          file,
+          withConcurrencyLimit,
+        )
         const result = DEFAULT_CHUNKED
           ? await translateByChunks(content, translateFn, { filePath: file })
           : await translateFn(content)

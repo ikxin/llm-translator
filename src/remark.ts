@@ -136,6 +136,19 @@ export async function translateByChunks(
     return content
   }
 
+  const translatedChunks = await Promise.all(
+    chunks.map(async (chunk) => {
+      const chunkText = content.slice(chunk.start, chunk.end)
+
+      if (!chunk.translatable) {
+        return chunkText
+      }
+
+      const translated = await translateFn(chunkText)
+      return processChunkOutput(translated)
+    }),
+  )
+
   const parts: string[] = []
   let lastEnd = 0
 
@@ -146,15 +159,7 @@ export async function translateByChunks(
     if (chunk.start > lastEnd) {
       parts.push(content.slice(lastEnd, chunk.start))
     }
-
-    const chunkText = content.slice(chunk.start, chunk.end)
-
-    if (chunk.translatable) {
-      const translated = await translateFn(chunkText)
-      parts.push(processChunkOutput(translated))
-    } else {
-      parts.push(chunkText)
-    }
+    parts.push(translatedChunks[i])
 
     lastEnd = chunk.end
   }
