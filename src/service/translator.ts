@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from 'fs'
 import type OpenAI from 'openai'
 import pLimit from 'p-limit'
 import { DEFAULT_CHUNKED, DEFAULT_RETRIES, SYSTEM_PROMPT } from '../config/constants.ts'
-import { translateByChunks } from '../utils/markdown.ts'
+import { translateByChunks, type ChunkInfo } from '../utils/markdown.ts'
 import type { ProgressCallbacks } from '../utils/render.ts'
 import { getOutputText } from './llm.ts'
 
@@ -59,6 +59,7 @@ export async function translateFiles(
 
       const file = files[currentIndex]
       const content = readFileSync(file, 'utf-8')
+      let hasStarted = false
 
       try {
         const translateFn = createTranslateFn(client, model, limit)
@@ -67,20 +68,35 @@ export async function translateFiles(
         if (DEFAULT_CHUNKED) {
           result = await translateByChunks(content, translateFn, {
             filePath: file,
-            onChunksResolved: (total) => callbacks?.onFileStart(file, total),
-            onChunkDone: () => callbacks?.onChunkComplete(file),
+            onChunksResolved: (chunks) => {
+              hasStarted = true
+              callbacks?.onFileStart(file, chunks)
+            },
+            onChunkStart: (chunk) => callbacks?.onChunkStart(file, chunk),
+            onChunkDone: (chunk, outputTokens) =>
+              callbacks?.onChunkComplete(file, chunk, outputTokens),
           })
         } else {
-          callbacks?.onFileStart(file, 1)
-          result = await translateFn(content)
-          callbacks?.onChunkComplete(file)
+          const chunk: ChunkInfo = { index: 0, size: content.length }
+          hasStarted = true
+          callbacks?.onFileStart(file, [chunk])
+          callbacks?.onChunkStart(file, chunk)
+          const translated = await translateFn(content)
+          result = translated.text
+          callbacks?.onChunkComplete(file, chunk, translated.outputTokens)
         }
 
+        if (!hasStarted) {
+          callbacks?.onFileStart(file, [])
+        }
         writeFileSync(file, result, 'utf-8')
         callbacks?.onFileComplete(file)
       } catch (error) {
         const message =
           error instanceof Error ? error.message : String(error)
+        if (!hasStarted) {
+          callbacks?.onFileStart(file, [])
+        }
         callbacks?.onFileError(file, message)
       }
     }

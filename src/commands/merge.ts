@@ -1,4 +1,5 @@
 import type { Command } from 'commander'
+import chalk from 'chalk'
 import { DEFAULT_QUEUE } from '../config/constants.ts'
 import { resolveClient } from '../service/llm.ts'
 import { translateFiles } from '../service/translator.ts'
@@ -17,9 +18,12 @@ export function registerMergeCommand(program: Command) {
       return
     }
 
-    console.log(`正在使用 git 解决 ${files.length} 个文件的冲突...`)
+    console.log(
+      `${chalk.cyan('●')} ${chalk.bold('合并准备')}  ${chalk.dim('冲突文件')} ${chalk.white(String(files.length))}`,
+    )
+    console.log(chalk.dim('  正在使用 git 选择目标版本并暂存文件...'))
     await resolveGitConflict(files)
-    console.log('冲突已解决，开始翻译...\n')
+    console.log(`${chalk.green('✓')} 冲突已解决，开始翻译\n`)
 
     const reporter = createReporter(model, queue, files.length)
     reporter.start()

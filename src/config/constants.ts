@@ -1,7 +1,8 @@
 export const DEFAULT_CHUNKED = true
-export const DEFAULT_QUEUE = 4
+export const DEFAULT_QUEUE = 10
 export const DEFAULT_RETRIES = 2
-export const USER_AGENT = 'claude-cli/2.1.126 (external, cli)'
+export const USER_AGENT =
+  'Codex Desktop/0.142.5 (Mac OS 26.5.1; arm64) unknown (Codex Desktop; 26.623.81905)'
 
 export const SYSTEM_PROMPT = `将以下 markdown 格式的内容翻译成中文，请遵守以下规则：
 1. 严格保持原文的 markdown 格式和结构不变

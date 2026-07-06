@@ -22,14 +22,35 @@ interface Chunk {
   translatable: boolean
 }
 
-function splitIntoChunks(
-  root: Root,
-  maxChunkSize: number,
-  minChunkSize: number,
-): Chunk[] {
+export interface ChunkInfo {
+  index: number
+  size: number
+}
+
+export interface ChunkTranslationResult {
+  text: string
+  outputTokens: number
+}
+
+function createChunk(
+  start: number,
+  end: number,
+  translatable: boolean,
+): Chunk {
+  return { start, end, translatable }
+}
+
+function splitIntoChunks(root: Root): Chunk[] {
   const chunks: Chunk[] = []
   let currentStart = -1
   let currentEnd = -1
+
+  const pushCurrent = () => {
+    if (currentStart < 0) return
+    chunks.push(createChunk(currentStart, currentEnd, true))
+    currentStart = -1
+    currentEnd = -1
+  }
 
   for (const node of root.children) {
     if (!node.position) continue
@@ -38,48 +59,24 @@ function splitIntoChunks(
     const nodeEnd = node.position.end.offset!
 
     if (!isTranslatable(node)) {
-      // 刷出当前可翻译的 chunk
-      if (currentStart >= 0) {
-        chunks.push({
-          start: currentStart,
-          end: currentEnd,
-          translatable: true,
-        })
-        currentStart = -1
-        currentEnd = -1
-      }
-      // 不可翻译的节点作为独立 chunk
-      chunks.push({ start: nodeStart, end: nodeEnd, translatable: false })
-    } else {
-      if (currentStart < 0) {
-        // 开始新的可翻译 chunk
-        currentStart = nodeStart
-        currentEnd = nodeEnd
-      } else if (
-        nodeEnd - currentStart > maxChunkSize ||
-        (node.type === 'heading' &&
-          node.depth <= 2 &&
-          currentEnd - currentStart >= minChunkSize)
-      ) {
-        // 当前 chunk 超过最大限制，或遇到 1-2 级标题且已达到最小分片大小，刷出
-        chunks.push({
-          start: currentStart,
-          end: currentEnd,
-          translatable: true,
-        })
-        currentStart = nodeStart
-        currentEnd = nodeEnd
-      } else {
-        // 扩展当前 chunk（包含节点间的空白）
-        currentEnd = nodeEnd
-      }
+      pushCurrent()
+      chunks.push(createChunk(nodeStart, nodeEnd, false))
+      continue
     }
+
+    // 按二级标题切分：每个 ## 开启一个新片段。
+    if (node.type === 'heading' && node.depth === 2) {
+      pushCurrent()
+    }
+
+    if (currentStart < 0) {
+      currentStart = nodeStart
+    }
+
+    currentEnd = nodeEnd
   }
 
-  // 刷出最后一个 chunk
-  if (currentStart >= 0) {
-    chunks.push({ start: currentStart, end: currentEnd, translatable: true })
-  }
+  pushCurrent()
 
   return chunks
 }
@@ -96,6 +93,36 @@ function createProcessor(filePath?: string) {
   }
 
   return processor.use(remarkStringify)
+}
+
+function createFallbackProcessor() {
+  return unified()
+    .use(remarkParse)
+    .use(remarkFrontmatter, ['yaml', 'toml'])
+    .use(remarkStringify)
+}
+
+function parseMarkdown(content: string, filePath?: string): Root {
+  const processor = createProcessor(filePath)
+
+  try {
+    return processor.parse(content) as Root
+  } catch (error) {
+    if (!filePath?.endsWith('.mdx')) {
+      throw error
+    }
+
+    return createFallbackProcessor().parse(content) as Root
+  }
+}
+
+function splitBoundaryWhitespace(text: string) {
+  const leading = text.match(/^\s*/)?.[0] ?? ''
+  const withoutLeading = text.slice(leading.length)
+  const trailing = withoutLeading.match(/\s*$/)?.[0] ?? ''
+  const body = withoutLeading.slice(0, withoutLeading.length - trailing.length)
+
+  return { leading, body, trailing }
 }
 
 export function processChunkOutput(output: string): string {
@@ -120,27 +147,37 @@ export function processChunkOutput(output: string): string {
 
 export async function translateByChunks(
   content: string,
-  translateFn: (text: string) => Promise<string>,
+  translateFn: (text: string) => Promise<ChunkTranslationResult>,
   options: {
-    maxChunkSize?: number
-    minChunkSize?: number
     filePath?: string
-    onChunksResolved?: (total: number) => void
-    onChunkDone?: () => void
+    onChunksResolved?: (chunks: ChunkInfo[]) => void
+    onChunkStart?: (chunk: ChunkInfo) => void
+    onChunkDone?: (chunk: ChunkInfo, outputTokens: number) => void
   } = {},
 ): Promise<string> {
-  const { maxChunkSize = 50000, minChunkSize = 10000, filePath, onChunksResolved, onChunkDone } = options
-  const processor = createProcessor(filePath)
-
-  const tree = processor.parse(content) as Root
-  const chunks = splitIntoChunks(tree, maxChunkSize, minChunkSize)
+  const {
+    filePath,
+    onChunksResolved,
+    onChunkStart,
+    onChunkDone,
+  } = options
+  const tree = parseMarkdown(content, filePath)
+  const chunks = splitIntoChunks(tree)
 
   if (chunks.length === 0) {
     return content
   }
 
-  const translatableCount = chunks.filter((c) => c.translatable).length
-  onChunksResolved?.(translatableCount)
+  const translatableChunks = chunks.filter((c) => c.translatable)
+  const chunkInfos = translatableChunks.map((chunk, index) => ({
+    index,
+    size: chunk.end - chunk.start,
+  }))
+  const chunkInfoByChunk = new Map<Chunk, ChunkInfo>()
+  translatableChunks.forEach((chunk, index) => {
+    chunkInfoByChunk.set(chunk, chunkInfos[index])
+  })
+  onChunksResolved?.(chunkInfos)
 
   const translatedChunks = await Promise.all(
     chunks.map(async (chunk) => {
@@ -150,9 +187,18 @@ export async function translateByChunks(
         return chunkText
       }
 
-      const translated = await translateFn(chunkText)
-      onChunkDone?.()
-      return processChunkOutput(translated)
+      const chunkInfo = chunkInfoByChunk.get(chunk)!
+      onChunkStart?.(chunkInfo)
+      const { leading, body, trailing } = splitBoundaryWhitespace(chunkText)
+
+      if (body.length === 0) {
+        onChunkDone?.(chunkInfo, 0)
+        return chunkText
+      }
+
+      const translated = await translateFn(body)
+      onChunkDone?.(chunkInfo, translated.outputTokens)
+      return leading + processChunkOutput(translated.text) + trailing
     }),
   )
 

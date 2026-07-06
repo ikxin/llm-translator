@@ -2,6 +2,11 @@ import OpenAI from 'openai'
 import { loadConfig, type RawConfig } from '../config/index.ts'
 import { USER_AGENT } from '../config/constants.ts'
 
+export interface LLMResult {
+  text: string
+  outputTokens: number
+}
+
 export function createClient(config: RawConfig): OpenAI {
   return new OpenAI({
     apiKey: config.api_key,
@@ -30,7 +35,7 @@ export async function getOutputText(
   model: string,
   system: string,
   prompt: string,
-) {
+): Promise<LLMResult> {
   const response = await client.responses.create({
     model,
     instructions: system,
@@ -55,5 +60,8 @@ export async function getOutputText(
     }
   }
 
-  return result.endsWith('\n') ? result : result + '\n'
+  return {
+    text: result.endsWith('\n') ? result : result + '\n',
+    outputTokens: response.usage?.output_tokens ?? 0,
+  }
 }
