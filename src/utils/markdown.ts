@@ -5,6 +5,7 @@ import remarkMdx from 'remark-mdx'
 import remarkParse from 'remark-parse'
 import remarkStringify from 'remark-stringify'
 import { unified } from 'unified'
+import { DEFAULT_MAX_CHUNK_SIZE } from '../config/constants.ts'
 
 // 不需要翻译的节点类型（纯编程结构）
 const NON_TRANSLATABLE_TYPES = new Set([
@@ -40,7 +41,11 @@ function createChunk(
   return { start, end, translatable }
 }
 
-function splitIntoChunks(root: Root): Chunk[] {
+function chunkSize(chunk: Chunk): number {
+  return chunk.end - chunk.start
+}
+
+function splitNodesByHeading(nodes: RootContent[], depth: number): Chunk[] {
   const chunks: Chunk[] = []
   let currentStart = -1
   let currentEnd = -1
@@ -52,20 +57,13 @@ function splitIntoChunks(root: Root): Chunk[] {
     currentEnd = -1
   }
 
-  for (const node of root.children) {
+  for (const node of nodes) {
     if (!node.position) continue
 
     const nodeStart = node.position.start.offset!
     const nodeEnd = node.position.end.offset!
 
-    if (!isTranslatable(node)) {
-      pushCurrent()
-      chunks.push(createChunk(nodeStart, nodeEnd, false))
-      continue
-    }
-
-    // 按二级标题切分：每个 ## 开启一个新片段。
-    if (node.type === 'heading' && node.depth === 2) {
+    if (node.type === 'heading' && node.depth === depth) {
       pushCurrent()
     }
 
@@ -77,6 +75,79 @@ function splitIntoChunks(root: Root): Chunk[] {
   }
 
   pushCurrent()
+
+  return chunks
+}
+
+function refineLargeChunkByHeading(
+  nodes: RootContent[],
+  chunk: Chunk,
+  depth: number,
+  maxChunkSize: number,
+): Chunk[] {
+  if (chunkSize(chunk) <= maxChunkSize) {
+    return [chunk]
+  }
+
+  const refined = splitNodesByHeading(nodes, depth)
+
+  // 没有对应层级标题时无法继续细分，保留原片段。
+  if (refined.length <= 1) {
+    return [chunk]
+  }
+
+  return refined
+}
+
+function splitIntoChunks(
+  root: Root,
+  maxChunkSize = DEFAULT_MAX_CHUNK_SIZE,
+): Chunk[] {
+  const chunks: Chunk[] = []
+  let translatableNodes: RootContent[] = []
+
+  const pushTranslatableNodes = () => {
+    if (translatableNodes.length === 0) return
+
+    const secondLevelChunks = splitNodesByHeading(translatableNodes, 2)
+
+    for (const chunk of secondLevelChunks) {
+      const nodesInChunk = translatableNodes.filter(
+        (node) =>
+          node.position &&
+          node.position.start.offset! >= chunk.start &&
+          node.position.end.offset! <= chunk.end,
+      )
+
+      chunks.push(
+        ...refineLargeChunkByHeading(
+          nodesInChunk,
+          chunk,
+          3,
+          maxChunkSize,
+        ),
+      )
+    }
+
+    translatableNodes = []
+  }
+
+  for (const node of root.children) {
+    if (!node.position) continue
+
+    const nodeStart = node.position.start.offset!
+    const nodeEnd = node.position.end.offset!
+
+    if (!isTranslatable(node)) {
+      pushTranslatableNodes()
+      chunks.push(createChunk(nodeStart, nodeEnd, false))
+      continue
+    }
+
+    translatableNodes.push(node)
+  }
+
+  pushTranslatableNodes()
 
   return chunks
 }
@@ -153,6 +224,7 @@ export async function translateByChunks(
     onChunksResolved?: (chunks: ChunkInfo[]) => void
     onChunkStart?: (chunk: ChunkInfo) => void
     onChunkDone?: (chunk: ChunkInfo, outputTokens: number) => void
+    maxChunkSize?: number
   } = {},
 ): Promise<string> {
   const {
@@ -160,9 +232,10 @@ export async function translateByChunks(
     onChunksResolved,
     onChunkStart,
     onChunkDone,
+    maxChunkSize = DEFAULT_MAX_CHUNK_SIZE,
   } = options
   const tree = parseMarkdown(content, filePath)
-  const chunks = splitIntoChunks(tree)
+  const chunks = splitIntoChunks(tree, maxChunkSize)
 
   if (chunks.length === 0) {
     return content
