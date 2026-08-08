@@ -152,18 +152,20 @@ function splitIntoChunks(
   return chunks
 }
 
-function createProcessor(filePath?: string) {
-  const processor = unified()
+function createMdcProcessor() {
+  return unified()
     .use(remarkParse)
     .use(remarkFrontmatter, ['yaml', 'toml'])
+    .use(remarkMdc)
+    .use(remarkStringify)
+}
 
-  if (filePath?.endsWith('.mdx')) {
-    processor.use(remarkMdx)
-  } else {
-    processor.use(remarkMdc)
-  }
-
-  return processor.use(remarkStringify)
+function createMdxProcessor() {
+  return unified()
+    .use(remarkParse)
+    .use(remarkFrontmatter, ['yaml', 'toml'])
+    .use(remarkMdx)
+    .use(remarkStringify)
 }
 
 function createFallbackProcessor() {
@@ -173,16 +175,21 @@ function createFallbackProcessor() {
     .use(remarkStringify)
 }
 
+function hasMdxComponentSyntax(content: string): boolean {
+  return /(?:^|\n)[\t ]*<\/?[A-Z][A-Za-z0-9_.:-]*(?=[\t />])/.test(content)
+}
+
 function parseMarkdown(content: string, filePath?: string): Root {
-  const processor = createProcessor(filePath)
+  const shouldUseMdx =
+    filePath?.toLowerCase().endsWith('.mdx') || hasMdxComponentSyntax(content)
+
+  if (!shouldUseMdx) {
+    return createMdcProcessor().parse(content) as Root
+  }
 
   try {
-    return processor.parse(content) as Root
-  } catch (error) {
-    if (!filePath?.endsWith('.mdx')) {
-      throw error
-    }
-
+    return createMdxProcessor().parse(content) as Root
+  } catch {
     return createFallbackProcessor().parse(content) as Root
   }
 }

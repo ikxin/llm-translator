@@ -122,17 +122,10 @@ function statusPill(label: string, color = chalk.cyan): string {
   return `${color('●')} ${chalk.bold(label)}`
 }
 
-function logLine(f: FileProgress): void {
-  const elapsed = formatDuration(f.endTime! - f.startTime)
-  if (f.status === 'done') {
-    process.stderr.write(
-      `  ${chalk.green('✓')} ${chalk.dim(f.file)}  ${chalk.dim(`${f.totalChunks} 块 · ${chunkSizeSummary(f.chunkSizes)} · ${f.outputTokens.toLocaleString('zh-CN')} tokens · ${elapsed}`)}\n`,
-    )
-  } else {
-    process.stderr.write(
-      `  ${chalk.red('✗')} ${f.file}  ${chalk.dim(`${f.totalChunks} 块 · ${chunkSizeSummary(f.chunkSizes)}`)}  ${chalk.red(f.error ?? '翻译失败')}\n`,
-    )
-  }
+function logErrorLine(f: FileProgress): void {
+  process.stderr.write(
+    `  ${chalk.red('✗')} ${f.file}  ${chalk.dim(`${f.totalChunks} 块 · ${chunkSizeSummary(f.chunkSizes)}`)}  ${chalk.red(f.error ?? '翻译失败')}\n`,
+  )
 }
 
 export function createReporter(
@@ -280,20 +273,11 @@ export function createReporter(
     const succeeded = completedFiles.length - errors.length
     const tokenRate = formatTokenRate(completedOutputTokens, elapsedMs)
 
-    process.stderr.write('\n')
-    const visibleCompleted =
-      completedFiles.length > 12
-        ? completedFiles.slice(-12)
-        : completedFiles
-    for (const f of visibleCompleted) {
-      logLine(f)
-    }
-    if (completedFiles.length > visibleCompleted.length) {
-      process.stderr.write(
-        chalk.dim(
-          `  ...另有 ${completedFiles.length - visibleCompleted.length} 个文件已完成\n`,
-        ),
-      )
+    if (errors.length > 0) {
+      process.stderr.write('\n')
+      for (const f of errors) {
+        logErrorLine(f)
+      }
     }
     process.stderr.write('\n')
 
@@ -357,7 +341,6 @@ export function createReporter(
         f.endTime = Date.now()
         files.delete(file)
         completedFiles.push(f)
-        if (!isTTY) logLine(f)
       }
     },
     onFileError(file, error) {
@@ -368,7 +351,7 @@ export function createReporter(
         f.endTime = Date.now()
         files.delete(file)
         completedFiles.push(f)
-        if (!isTTY) logLine(f)
+        if (!isTTY) logErrorLine(f)
       }
     },
   }

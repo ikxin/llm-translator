@@ -1,5 +1,5 @@
 export const DEFAULT_CHUNKED = true
-export const DEFAULT_QUEUE = 10
+export const DEFAULT_QUEUE = 30
 export const DEFAULT_RETRIES = 2
 export const DEFAULT_MAX_CHUNK_SIZE = 10_000
 export const USER_AGENT =
