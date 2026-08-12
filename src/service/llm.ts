@@ -7,6 +7,13 @@ export interface LLMResult {
   outputTokens: number
 }
 
+const INVALID_TRANSLATION_SEQUENCE = '\u3011\u3010\u3002'
+
+// 临时清理翻译响应中偶发追加的无效标点序列。
+function cleanTranslationOutput(text: string): string {
+  return text.replaceAll(INVALID_TRANSLATION_SEQUENCE, '')
+}
+
 export function createClient(config: RawConfig): OpenAI {
   return new OpenAI({
     apiKey: config.api_key,
@@ -42,9 +49,9 @@ export async function getOutputText(
     input: prompt,
   })
 
-  const content = response.output_text
+  const content = cleanTranslationOutput(response.output_text)
 
-  if (!content) {
+  if (!content.trim()) {
     throw new Error('API 返回了空的 output_text')
   }
 
