@@ -1,7 +1,7 @@
 export const DEFAULT_CHUNKED = true
 export const DEFAULT_QUEUE = 30
 export const DEFAULT_RETRIES = 2
-export const DEFAULT_MAX_CHUNK_SIZE = 50_000
+export const DEFAULT_MAX_CHUNK_SIZE = 10_000
 export const USER_AGENT =
   'Codex Desktop/0.147.0-alpha.6.5 (Mac OS 26.5.2; arm64) unknown (Codex Desktop; 26.803.61601)'
 

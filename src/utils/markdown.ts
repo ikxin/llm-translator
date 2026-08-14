@@ -1,4 +1,9 @@
 import type { Root, RootContent } from 'mdast'
+import {
+  decode,
+  encode,
+  isWithinTokenLimit,
+} from 'gpt-tokenizer/encoding/o200k_base'
 import remarkFrontmatter from 'remark-frontmatter'
 import remarkMdc from 'remark-mdc'
 import remarkMdx from 'remark-mdx'
@@ -12,6 +17,8 @@ const NON_TRANSLATABLE_TYPES = new Set([
   'mdxjsEsm', // MDX import/export
   'mdxFlowExpression', // MDX JS 表达式
 ])
+
+const TOKENIZER_OPTIONS = { disallowedSpecial: new Set<string>() }
 
 function isTranslatable(node: RootContent): boolean {
   return !NON_TRANSLATABLE_TYPES.has(node.type)
@@ -41,95 +48,71 @@ function createChunk(
   return { start, end, translatable }
 }
 
-function chunkSize(chunk: Chunk): number {
-  return chunk.end - chunk.start
+function isWithinChunkLimit(text: string, maxChunkSize: number): boolean {
+  const { body } = splitBoundaryWhitespace(text)
+  return (
+    isWithinTokenLimit(body, maxChunkSize, TOKENIZER_OPTIONS) !== false
+  )
 }
 
-function splitNodesByHeading(nodes: RootContent[], depth: number): Chunk[] {
+function findSafeTokenBoundary(text: string, maxChunkSize: number): number {
+  const tokens = encode(text, TOKENIZER_OPTIONS)
+  let tokenEnd = Math.min(tokens.length, maxChunkSize)
+
+  while (tokenEnd > 0) {
+    const prefix = decode(tokens.slice(0, tokenEnd))
+
+    if (
+      prefix.length > 0 &&
+      text.startsWith(prefix) &&
+      isWithinChunkLimit(prefix, maxChunkSize)
+    ) {
+      return prefix.length
+    }
+
+    tokenEnd--
+  }
+
+  throw new Error('无法在最大 token 限制内安全切分文档内容')
+}
+
+function splitLargeNode(
+  content: string,
+  start: number,
+  end: number,
+  maxChunkSize: number,
+): Chunk[] {
   const chunks: Chunk[] = []
-  let currentStart = -1
-  let currentEnd = -1
+  let chunkStart = start
 
-  const pushCurrent = () => {
-    if (currentStart < 0) return
-    chunks.push(createChunk(currentStart, currentEnd, true))
-    currentStart = -1
-    currentEnd = -1
-  }
+  while (chunkStart < end) {
+    const remaining = content.slice(chunkStart, end)
 
-  for (const node of nodes) {
-    if (!node.position) continue
-
-    const nodeStart = node.position.start.offset!
-    const nodeEnd = node.position.end.offset!
-
-    if (node.type === 'heading' && node.depth === depth) {
-      pushCurrent()
+    if (isWithinChunkLimit(remaining, maxChunkSize)) {
+      chunks.push(createChunk(chunkStart, end, true))
+      break
     }
 
-    if (currentStart < 0) {
-      currentStart = nodeStart
-    }
-
-    currentEnd = nodeEnd
+    const boundary = findSafeTokenBoundary(remaining, maxChunkSize)
+    chunks.push(createChunk(chunkStart, chunkStart + boundary, true))
+    chunkStart += boundary
   }
-
-  pushCurrent()
 
   return chunks
 }
 
-function refineLargeChunkByHeading(
-  nodes: RootContent[],
-  chunk: Chunk,
-  depth: number,
-  maxChunkSize: number,
-): Chunk[] {
-  if (chunkSize(chunk) <= maxChunkSize) {
-    return [chunk]
-  }
-
-  const refined = splitNodesByHeading(nodes, depth)
-
-  // 没有对应层级标题时无法继续细分，保留原片段。
-  if (refined.length <= 1) {
-    return [chunk]
-  }
-
-  return refined
-}
-
 function splitIntoChunks(
+  content: string,
   root: Root,
   maxChunkSize = DEFAULT_MAX_CHUNK_SIZE,
 ): Chunk[] {
   const chunks: Chunk[] = []
-  let translatableNodes: RootContent[] = []
+  let currentChunk: Chunk | undefined
 
-  const pushTranslatableNodes = () => {
-    if (translatableNodes.length === 0) return
-
-    const secondLevelChunks = splitNodesByHeading(translatableNodes, 2)
-
-    for (const chunk of secondLevelChunks) {
-      const nodesInChunk = translatableNodes.filter(
-        (node) =>
-          node.position &&
-          node.position.start.offset! >= chunk.start &&
-          node.position.end.offset! <= chunk.end,
-      )
-
-      chunks.push(
-        ...refineLargeChunkByHeading(
-          nodesInChunk,
-          chunk,
-          3,
-          maxChunkSize,
-        ),
-      )
-    }
-
-    translatableNodes = []
+  const pushCurrentChunk = () => {
+    if (!currentChunk) return
+    chunks.push(currentChunk)
+    currentChunk = undefined
   }
 
   for (const node of root.children) {
@@ -139,15 +122,41 @@ function splitIntoChunks(
     const nodeEnd = node.position.end.offset!
 
     if (!isTranslatable(node)) {
-      pushTranslatableNodes()
+      pushCurrentChunk()
       chunks.push(createChunk(nodeStart, nodeEnd, false))
       continue
     }
 
-    translatableNodes.push(node)
+    if (
+      currentChunk &&
+      isWithinChunkLimit(
+        content.slice(currentChunk.start, nodeEnd),
+        maxChunkSize,
+      )
+    ) {
+      currentChunk.end = nodeEnd
+      continue
+    }
+
+    pushCurrentChunk()
+
+    const nodeText = content.slice(nodeStart, nodeEnd)
+    if (isWithinChunkLimit(nodeText, maxChunkSize)) {
+      currentChunk = createChunk(nodeStart, nodeEnd, true)
+      continue
+    }
+
+    const nodeChunks = splitLargeNode(
+      content,
+      nodeStart,
+      nodeEnd,
+      maxChunkSize,
+    )
+    chunks.push(...nodeChunks.slice(0, -1))
+    currentChunk = nodeChunks.at(-1)
   }
 
-  pushTranslatableNodes()
+  pushCurrentChunk()
 
   return chunks
 }
@@ -176,7 +185,7 @@ function createFallbackProcessor() {
 }
 
 function hasMdxComponentSyntax(content: string): boolean {
-  return /(?:^|\n)[\t ]*<\/?[A-Z][A-Za-z0-9_.:-]*(?=[\t />])/.test(content)
+  return /(?:^|\n)[\t ]*<\/?[A-Z][A-Za-z0-9_.:-]*(?=[\s/>])/.test(content)
 }
 
 function parseMarkdown(content: string, filePath?: string): Root {
@@ -242,7 +251,7 @@ export async function translateByChunks(
     maxChunkSize = DEFAULT_MAX_CHUNK_SIZE,
   } = options
   const tree = parseMarkdown(content, filePath)
-  const chunks = splitIntoChunks(tree, maxChunkSize)
+  const chunks = splitIntoChunks(content, tree, maxChunkSize)
 
   if (chunks.length === 0) {
     return content
